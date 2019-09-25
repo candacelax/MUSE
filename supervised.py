@@ -71,7 +71,7 @@ assert params.export in ["", "txt", "pth"]
 # build logger / model / trainer / evaluator
 logger = initialize_exp(params)
 
-src_emb, tgt_emb, mapping, _ = build_model(params, False, logger)
+src_emb, tgt_emb, mapping, _ = build_model(params, False)
 trainer = Trainer(src_emb, tgt_emb, mapping, None, params)
 evaluator = Evaluator(trainer)
 
