@@ -10,7 +10,7 @@ import json
 import argparse
 from collections import OrderedDict
 import torch
-
+import shutil
 from src.utils import bool_flag, initialize_exp
 from src.models import build_model
 from src.trainer import Trainer
@@ -19,7 +19,6 @@ from src.evaluation import Evaluator
 
 VALIDATION_METRIC_SUP = 'precision_at_1-csls_knn_10'
 VALIDATION_METRIC_UNSUP = 'mean_cosine-csls_knn_10-S2T-10000'
-
 
 # main
 parser = argparse.ArgumentParser(description='Supervised training')
@@ -41,6 +40,7 @@ parser.add_argument("--n_refinement", type=int, default=5, help="Number of refin
 # dictionary creation parameters (for refinement)
 parser.add_argument("--dico_train", type=str, default="default", help="Path to training dictionary (default: use identical character strings)")
 parser.add_argument("--dico_eval", type=str, default="default", help="Path to evaluation dictionary")
+parser.add_argument("--dico_test", type=str, required=False, help="ONLY if no longer tuning parameters and want to avoid saving mapped embeddings")
 parser.add_argument("--dico_method", type=str, default='csls_knn_10', help="Method used for dictionary generation (nn/invsm_beta_30/csls_knn_10)")
 parser.add_argument("--dico_build", type=str, default='S2T&T2S', help="S2T,T2S,S2T|T2S,S2T&T2S")
 parser.add_argument("--dico_threshold", type=float, default=0, help="Threshold confidence for dictionary generation")
@@ -55,6 +55,7 @@ parser.add_argument("--normalize_embeddings", type=str, default="", help="Normal
 
 # parse parameters
 params = parser.parse_args()
+print('p', params)
 
 # check parameters
 assert not params.cuda or torch.cuda.is_available()
@@ -69,9 +70,12 @@ assert params.export in ["", "txt", "pth"]
 
 # build logger / model / trainer / evaluator
 logger = initialize_exp(params)
-src_emb, tgt_emb, mapping, _ = build_model(params, False)
+
+src_emb, tgt_emb, mapping, _ = build_model(params, False, logger)
 trainer = Trainer(src_emb, tgt_emb, mapping, None, params)
 evaluator = Evaluator(trainer)
+
+shutil.copyfile(params.dico_train, os.path.join(params.exp_path, 'dico_train.txt'))
 
 # load a training dictionary. if a dictionary path is not provided, use a default
 # one ("default") or create one based on identical character strings ("identical_char")
@@ -85,6 +89,7 @@ logger.info("Validation metric: %s" % VALIDATION_METRIC)
 Learning loop for Procrustes Iterative Learning
 """
 for n_iter in range(params.n_refinement + 1):
+    print('n', n_iter)
 
     logger.info('Starting iteration %i...' % n_iter)
 
@@ -104,9 +109,29 @@ for n_iter in range(params.n_refinement + 1):
     logger.info("__log__:%s" % json.dumps(to_log))
     trainer.save_best(to_log, VALIDATION_METRIC)
     logger.info('End of iteration %i.\n\n' % n_iter)
-
-
+    
 # export embeddings
-if params.export:
-    trainer.reload_best()
-    trainer.export()
+#if params.export:
+#    trainer.reload_best()
+#    trainer.export()
+
+# only if no longer tuning parameters; this is to avoid saving full, mapped embedding space
+if params.dico_test:
+    # build logger / model / trainer / evaluator
+    logger.info('Starting final eval') 
+    params.dico_eval = params.dico_test
+    eval_trainer = Trainer(trainer.src_emb, trainer.tgt_emb, trainer.mapping, None, params)
+    evaluator = Evaluator(eval_trainer)
+
+    # run evaluations
+    to_log = OrderedDict({'n_iter': 0})
+    print('Eval monolingual word sim')
+    evaluator.monolingual_wordsim(to_log)
+    # evaluator.monolingual_wordanalogy(to_log)
+    print('Eval cross-lingual word sim')
+    evaluator.crosslingual_wordsim(to_log)
+    print('Eval word translation')
+    evaluator.word_translation(to_log)
+    print('Eval sent translation')
+    evaluator.sent_translation(to_log)
+    # evaluator.dist_mean_cosine(to_log)
