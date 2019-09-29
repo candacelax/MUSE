@@ -73,6 +73,7 @@ def load_dictionary(path, word2id1, word2id2):
                 "(%i in lang1, %i in lang2)"
                 % (len(pairs), len(set([x for x, _ in pairs])),
                    not_found, not_found1, not_found2))
+    assert not_found == 0, 'Unknown pairs cannot exist in seed'
 
     # sort the dictionary by source word frequencies
     pairs = sorted(pairs, key=lambda x: word2id1[x[0]])
